@@ -18,7 +18,7 @@ const defaultOKFAgentsBlock = `<!-- BEGIN OKF AGENT MEMORY -->
 
 ## 🧠 Persistent Project Memory (OKF v0.2)
 
-> Powered by [OKF Agent Memory](https://github.com/okf-memory/okf-agent-memory) — Open Knowledge Format (OKF) v0.2 persistent project memory for AI agents.
+> Powered by [OKF Agent Memory](https://github.com/uw-ssec/okf-agent-memory) — Open Knowledge Format (OKF) v0.2 persistent project memory for AI agents.
 
 When working in this codebase, you must follow the memory conventions:
 

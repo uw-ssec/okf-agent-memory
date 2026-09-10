@@ -1,3 +1,3 @@
-module github.com/okf-memory/okf-agent-memory
+module github.com/uw-ssec/okf-agent-memory
 
 go 1.22.0

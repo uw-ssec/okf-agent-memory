@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/okf-memory/okf-agent-memory/pkg/okf"
+	"github.com/uw-ssec/okf-agent-memory/pkg/okf"
 )
 
 // Benchmark Configuration Constants

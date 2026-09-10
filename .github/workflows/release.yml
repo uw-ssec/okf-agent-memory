@@ -97,20 +97,20 @@ jobs:
           cat <<EOF > Formula/okf.rb
           class Okf < Formula
             desc "Domain-neutral, Git-native persistent project memory for AI agents (OKF v0.2)"
-            homepage "https://github.com/okf-memory/okf-agent-memory"
+            homepage "https://github.com/uw-ssec/okf-agent-memory"
             version "${CLEAN_VER}"
             license "MIT"
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/okf-memory/okf-agent-memory/releases/download/${TAG_VER}/okf-darwin-arm64"
+                url "https://github.com/uw-ssec/okf-agent-memory/releases/download/${TAG_VER}/okf-darwin-arm64"
                 sha256 "${ARM64_MAC_SHA}"
 
                 def install
                   bin.install "okf-darwin-arm64" => "okf"
                 end
               else
-                url "https://github.com/okf-memory/okf-agent-memory/releases/download/${TAG_VER}/okf-darwin-amd64"
+                url "https://github.com/uw-ssec/okf-agent-memory/releases/download/${TAG_VER}/okf-darwin-amd64"
                 sha256 "${AMD64_MAC_SHA}"
 
                 def install
@@ -121,14 +121,14 @@ jobs:
 
             on_linux do
               if Hardware::CPU.arm?
-                url "https://github.com/okf-memory/okf-agent-memory/releases/download/${TAG_VER}/okf-linux-arm64"
+                url "https://github.com/uw-ssec/okf-agent-memory/releases/download/${TAG_VER}/okf-linux-arm64"
                 sha256 "${ARM64_LINUX_SHA}"
 
                 def install
                   bin.install "okf-linux-arm64" => "okf"
                 end
               else
-                url "https://github.com/okf-memory/okf-agent-memory/releases/download/${TAG_VER}/okf-linux-amd64"
+                url "https://github.com/uw-ssec/okf-agent-memory/releases/download/${TAG_VER}/okf-linux-amd64"
                 sha256 "${AMD64_LINUX_SHA}"
 
                 def install
@@ -166,11 +166,11 @@ jobs:
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          echo "Updating okf-memory/homebrew-tap with new Formula..."
+          echo "Updating uw-ssec/homebrew-tap with new Formula..."
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/okf-memory/homebrew-tap.git tap-repo
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/uw-ssec/homebrew-tap.git tap-repo
           cp dist/Formula/okf.rb tap-repo/Formula/okf.rb
           cd tap-repo
           git add Formula/okf.rb
@@ -179,6 +179,6 @@ jobs:
           else
             git commit -m "chore(formula): bump okf to ${{ steps.get_version.outputs.VERSION }}"
             git push origin main
-            echo "Successfully updated okf-memory/homebrew-tap!"
+            echo "Successfully updated uw-ssec/homebrew-tap!"
           fi
 

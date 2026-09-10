@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/okf-memory/okf-agent-memory/pkg/okf"
+	"github.com/uw-ssec/okf-agent-memory/pkg/okf"
 )
 
 func TestParseAndSerializeConcept(t *testing.T) {
@@ -291,7 +291,7 @@ func TestBootstrapExistingAGENTS_SmartAppend(t *testing.T) {
 	if !strings.Contains(content, "<!-- BEGIN OKF AGENT MEMORY -->") {
 		t.Errorf("OKF memory block marker was not appended: %s", content)
 	}
-	if !strings.Contains(content, "https://github.com/okf-memory/okf-agent-memory") {
+	if !strings.Contains(content, "https://github.com/uw-ssec/okf-agent-memory") {
 		t.Errorf("Distribution repository link is missing in appended block: %s", content)
 	}
 

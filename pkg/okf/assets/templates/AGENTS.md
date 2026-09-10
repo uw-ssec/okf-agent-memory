@@ -1,6 +1,6 @@
 # AGENTS.md — Instructions for AI Agents in `{{PROJECT_NAME}}`
 
-> Powered by [OKF Agent Memory](https://github.com/okf-memory/okf-agent-memory) — Open Knowledge Format (OKF) v0.2 persistent project memory for AI agents.
+> Powered by [OKF Agent Memory](https://github.com/uw-ssec/okf-agent-memory) — Open Knowledge Format (OKF) v0.2 persistent project memory for AI agents.
 
 Welcome to the **{{PROJECT_NAME}}** repository. When working in this codebase, you must follow the memory conventions:
 

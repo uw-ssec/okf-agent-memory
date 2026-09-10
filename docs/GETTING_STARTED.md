@@ -26,7 +26,7 @@ This guide walks you through integrating and using **OKF Agent Memory** in any p
 Install with a single command via the official tap:
 
 ```bash
-brew install okf-memory/tap/okf
+brew install uw-ssec/tap/okf
 
 # Verify installation
 okf version
@@ -34,11 +34,11 @@ okf version
 
 ### Option B: Download Pre-Compiled Release
 
-Download the pre-compiled binary for your architecture from [GitHub Releases](https://github.com/okf-memory/okf-agent-memory/releases):
+Download the pre-compiled binary for your architecture from [GitHub Releases](https://github.com/uw-ssec/okf-agent-memory/releases):
 
 ```bash
 # Example for macOS (Apple Silicon)
-curl -L -o okf https://github.com/okf-memory/okf-agent-memory/releases/latest/download/okf-darwin-arm64
+curl -L -o okf https://github.com/uw-ssec/okf-agent-memory/releases/latest/download/okf-darwin-arm64
 chmod +x okf
 sudo mv okf /usr/local/bin/
 
@@ -51,7 +51,7 @@ okf version
 Requires Go 1.22+ (or newer):
 
 ```bash
-git clone https://github.com/okf-memory/okf-agent-memory.git
+git clone https://github.com/uw-ssec/okf-agent-memory.git
 cd okf-agent-memory
 make build
 # Binary is available at bin/okf

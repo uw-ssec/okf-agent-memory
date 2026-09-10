@@ -141,9 +141,9 @@ git push origin "${RELEASE_VER}"
 ## 4. Post-Release & Distribution
 
 ### 1. Monitor GitHub Actions Release Workflow
-1. Navigate to `https://github.com/okf-memory/okf-agent-memory/actions`.
+1. Navigate to `https://github.com/uw-ssec/okf-agent-memory/actions`.
 2. Verify that the **Release** workflow completes with green checkmarks.
-3. Verify the published assets on `https://github.com/okf-memory/okf-agent-memory/releases/tag/${RELEASE_VER}`:
+3. Verify the published assets on `https://github.com/uw-ssec/okf-agent-memory/releases/tag/${RELEASE_VER}`:
    - `okf-darwin-arm64`, `okf-darwin-amd64`
    - `okf-linux-amd64`, `okf-linux-arm64`
    - `okf-windows-amd64.exe`, `okf-windows-arm64.exe`
@@ -152,20 +152,20 @@ git push origin "${RELEASE_VER}"
    - `Formula/okf.rb`
 
 ### 2. Verify Homebrew Tap Sync
-The release workflow automatically updates `okf-memory/homebrew-tap` if `HOMEBREW_TAP_TOKEN` is configured:
-1. Verify the automated commit in `https://github.com/okf-memory/homebrew-tap/commits/main`.
+The release workflow automatically updates `uw-ssec/homebrew-tap` if `HOMEBREW_TAP_TOKEN` is configured:
+1. Verify the automated commit in `https://github.com/uw-ssec/homebrew-tap/commits/main`.
 2. Test installation:
    ```bash
    brew update
    brew upgrade okf
    okf version
    ```
-*(Fallback if token is absent: Manually copy the generated `Formula/okf.rb` from the release assets into `okf-memory/homebrew-tap`).*
+*(Fallback if token is absent: Manually copy the generated `Formula/okf.rb` from the release assets into `uw-ssec/homebrew-tap`).*
 
 ### 3. Verify Direct Go Install
 Test direct global installation via Go toolchain:
 ```bash
-go install github.com/okf-memory/okf-agent-memory/cmd/okf@${RELEASE_VER}
+go install github.com/uw-ssec/okf-agent-memory/cmd/okf@${RELEASE_VER}
 okf version
 ```
 
