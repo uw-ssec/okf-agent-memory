@@ -1,3 +1,8 @@
+## 2026-11-16
+* **Update**: Linked `architecture/zero-knowledge-vault-sync.md` to `convention/hub-credential-handling.md` (How the vault password and Secret Key are supplied to hub commands).
+* **Update**: Linked `convention/hub-credential-handling.md` to `architecture/zero-knowledge-vault-sync.md` (Extends the hub credential resolution rules (alongside OKF_HUB_TOKEN) to the vault password and Secret Key).
+* **Creation**: Documented concept `convention/hub-credential-handling.md` (Hub Vault Credentials From Environment).
+
 ## 2026-11-05
 * **Update**: Updated concept `roadmap/milestones.md`.
 * **Update**: Updated concept `convention/contributing.md`.

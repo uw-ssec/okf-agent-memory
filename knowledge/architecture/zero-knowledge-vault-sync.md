@@ -88,3 +88,4 @@ All remote hub communication supports Bearer token authentication to restrict va
 - [5-Layer System Architecture](layers.md): Layered separation of concerns
 - [Bundle Isolation and Mutation Security Boundaries](security-boundaries.md): Defensive containment and path traversal protection
 - [Semantic Merge of Bookkeeping Files During Hub Sync](semantic-bookkeeping-merge.md): How log.md and index.md collisions are merged during sync
+- [Hub Vault Credentials From Environment](../convention/hub-credential-handling.md): How the vault password and Secret Key are supplied to hub commands
