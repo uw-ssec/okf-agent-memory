@@ -42,7 +42,7 @@ func promise(fn func() (string, error)) js.Value {
 	executor := js.FuncOf(func(_ js.Value, a []js.Value) any {
 		resolve, reject := a[0], a[1]
 		go func() {
-			v, err := fn()
+			v, err := safeCall(fn) // a panic rejects this call instead of exiting the runtime
 			if err != nil {
 				reject.Invoke(js.Global().Get("Error").New(err.Error()))
 				return
@@ -128,11 +128,7 @@ func main() {
 				return "", errors.New("engine not initialized")
 			}
 			author := vault.CommitAuthor{ClientID: "okf-hub-mcp", Agent: "okf-wasm-engine"}
-			res, err := engine.Sync(context.Background(), author, message)
-			if err != nil {
-				return "", err
-			}
-			return res.CommitHash, nil
+			return syncOutcome(engine.Sync(context.Background(), author, message))
 		})
 	}))
 	js.Global().Set("okfEngineHandle", js.FuncOf(func(_ js.Value, a []js.Value) any {

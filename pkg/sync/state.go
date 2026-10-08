@@ -138,6 +138,22 @@ func (e *Engine) loadState() {
 	e.cachedTree = tree
 }
 
+// StateSaveError reports that a hub operation succeeded remotely but the local
+// sync state could not be written. The operation's result is returned alongside
+// it and is still valid; the next run falls back to a full reconcile against
+// the hub.
+type StateSaveError struct {
+	// Op describes the operation that succeeded, e.g. "commit abc was accepted by the hub".
+	Op  string
+	Err error
+}
+
+func (e *StateSaveError) Error() string {
+	return fmt.Sprintf("sync: %s, but persisting the sync state failed: %v", e.Op, e.Err)
+}
+
+func (e *StateSaveError) Unwrap() error { return e.Err }
+
 // saveState atomically persists the cached head and tree into the bundle so
 // the next engine instance can resume from this position. It must be called
 // after every successful push/pull/sync that advances the cached state.

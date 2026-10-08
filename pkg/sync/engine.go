@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	stdsync "sync"
 	"time"
 
 	"github.com/uw-ssec/okf-agent-memory/pkg/vault"
@@ -34,6 +35,9 @@ type SyncResult struct {
 
 // DefaultMaxSyncRetries is the maximum number of times Sync will retry on concurrent head conflicts (HTTP 409).
 const DefaultMaxSyncRetries = 5
+
+// PullConcurrency bounds how many blobs Pull downloads and decrypts at once.
+const PullConcurrency = 16
 
 // Engine coordinates bundle scanning, client-side encryption/decryption,
 // and sync operations with the remote OKF Memory Hub.
@@ -209,15 +213,15 @@ func (e *Engine) Push(ctx context.Context, author vault.CommitAuthor, message st
 	e.cachedHead = resp.Head
 	e.cachedTree = newTree
 
-	if err := e.saveState(); err != nil {
-		return nil, fmt.Errorf("sync: commit %s was accepted by the hub, but persisting the sync state failed: %w", resp.Head, err)
-	}
-
-	return &PushResult{
+	res := &PushResult{
 		CommitHash:     resp.Head,
 		UploadedBlobs:  len(blobsToUpload),
 		UnchangedBlobs: unchangedCount,
-	}, nil
+	}
+	if err := e.saveState(); err != nil {
+		return res, &StateSaveError{Op: fmt.Sprintf("commit %s was accepted by the hub", resp.Head), Err: err}
+	}
+	return res, nil
 }
 
 // Pull downloads the latest commit and tree manifest from the hub,
@@ -280,18 +284,40 @@ func (e *Engine) Pull(ctx context.Context) (*PullResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sync: refusing to pull commit %s: %w", headResp.HeadCommit, err)
 	}
-	for _, path := range toFetch {
-		entry := remoteTree.Entries[path]
-		blobBytes, err := e.Client.GetBlob(ctx, e.VaultID, entry.BlobHash)
-		if err != nil {
-			return nil, fmt.Errorf("sync: failed to get blob %s for %s: %w", entry.BlobHash, path, err)
-		}
 
-		plainBytes, err := vault.DecryptPayload(blobBytes, e.VaultKey)
+	// Download and decrypt in parallel (one round trip per blob is what makes
+	// a cold pull slow), then write only once every blob has arrived, so a
+	// failed download never leaves the bundle half-updated.
+	plain := make([][]byte, len(toFetch))
+	errs := make([]error, len(toFetch))
+	sem := make(chan struct{}, PullConcurrency)
+	var wg stdsync.WaitGroup
+	for i, path := range toFetch {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, path string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			entry := remoteTree.Entries[path]
+			blobBytes, err := e.Client.GetBlob(ctx, e.VaultID, entry.BlobHash)
+			if err != nil {
+				errs[i] = fmt.Errorf("sync: failed to get blob %s for %s: %w", entry.BlobHash, path, err)
+				return
+			}
+			if plain[i], err = vault.DecryptPayload(blobBytes, e.VaultKey); err != nil {
+				errs[i] = fmt.Errorf("sync: failed to decrypt %s: %w", path, err)
+			}
+		}(i, path)
+	}
+	wg.Wait()
+	for _, err := range errs {
 		if err != nil {
-			return nil, fmt.Errorf("sync: failed to decrypt %s: %w", path, err)
+			return nil, err
 		}
+	}
 
+	for i, path := range toFetch {
+		plainBytes := plain[i]
 		fullPath := writeTargets[path]
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			return nil, fmt.Errorf("sync: failed to mkdir for %s: %w", path, err)
@@ -310,15 +336,15 @@ func (e *Engine) Pull(ctx context.Context) (*PullResult, error) {
 	e.cachedHead = headResp.HeadCommit
 	e.cachedTree = remoteTree
 
-	if err := e.saveState(); err != nil {
-		return nil, fmt.Errorf("sync: pulled commit %s, but persisting the sync state failed: %w", headResp.HeadCommit, err)
-	}
-
-	return &PullResult{
+	res := &PullResult{
 		CommitHash:   headResp.HeadCommit,
 		UpdatedFiles: updated,
 		DeletedFiles: diff.Deleted,
-	}, nil
+	}
+	if err := e.saveState(); err != nil {
+		return res, &StateSaveError{Op: fmt.Sprintf("pulled commit %s", headResp.HeadCommit), Err: err}
+	}
+	return res, nil
 }
 
 // Sync performs a full synchronization cycle:
@@ -326,10 +352,11 @@ func (e *Engine) Pull(ctx context.Context) (*PullResult, error) {
 // writes local conflict files if necessary, and pushes the merged commit.
 func (e *Engine) Sync(ctx context.Context, author vault.CommitAuthor, message string) (*SyncResult, error) {
 	pushRes, err := e.Push(ctx, author, message)
-	if err == nil {
+	var saveErr *StateSaveError
+	if err == nil || errors.As(err, &saveErr) {
 		return &SyncResult{
 			CommitHash: pushRes.CommitHash,
-		}, nil
+		}, err
 	}
 
 	var conflictErr *HeadConflictError
@@ -525,14 +552,14 @@ func (e *Engine) Sync(ctx context.Context, author vault.CommitAuthor, message st
 		e.cachedHead = resp.Head
 		e.cachedTree = reconcileRes.MergedTree
 
-		if err := e.saveState(); err != nil {
-			return nil, fmt.Errorf("sync: merged commit %s was accepted by the hub, but persisting the sync state failed: %w", resp.Head, err)
-		}
-
-		return &SyncResult{
+		res := &SyncResult{
 			CommitHash: resp.Head,
 			Conflicts:  reconcileRes.Conflicts,
-		}, nil
+		}
+		if err := e.saveState(); err != nil {
+			return res, &StateSaveError{Op: fmt.Sprintf("merged commit %s was accepted by the hub", resp.Head), Err: err}
+		}
+		return res, nil
 	}
 
 	return nil, fmt.Errorf("sync: exceeded maximum reconciliation retries (%d)", DefaultMaxSyncRetries)
