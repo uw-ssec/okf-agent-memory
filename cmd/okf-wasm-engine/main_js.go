@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/uw-ssec/okf-agent-memory/pkg/okf"
 	"io"
 	"net/http"
 	"syscall/js"
@@ -96,10 +97,18 @@ func initEngine(vaultID, keyHex string) error {
 	client.HTTPClient.Transport = hubTransport{}
 	// NewEngine restores the persisted sync state from the bundle on its own.
 	engine = sync.NewEngine(client, vaultID, key, bundleDir)
+	lastPulledHead = ""
+	InvalidateBundle()
 	return nil
 }
 
+// lastPulledHead is the head the files on disk match; a pull that lands a
+// different head has changed them, so the bundle cache is dropped.
+var lastPulledHead string
+
 func main() {
+	// Long-lived host: parse the bundle once and reuse it until files change.
+	okf.SetBundleCacheEnabled(true)
 	// Every export returns a Promise and does its work on a new goroutine:
 	// file I/O goes through async JS callbacks, and blocking on one inside a
 	// synchronous js.FuncOf call deadlocks the event loop.
@@ -116,7 +125,12 @@ func main() {
 			}
 			res, err := engine.Pull(context.Background())
 			if err != nil {
+				InvalidateBundle() // a failed pull may have written some files
 				return "", err
+			}
+			if res.CommitHash != lastPulledHead {
+				InvalidateBundle()
+				lastPulledHead = res.CommitHash
 			}
 			return res.CommitHash, nil
 		})
@@ -128,6 +142,9 @@ func main() {
 				return "", errors.New("engine not initialized")
 			}
 			author := vault.CommitAuthor{ClientID: "okf-hub-mcp", Agent: "okf-wasm-engine"}
+			// Sync can merge remote changes into the files, and the new head is
+			// not one a later pull would detect as changed: always drop the cache.
+			defer func() { InvalidateBundle(); lastPulledHead = "" }()
 			return syncOutcome(engine.Sync(context.Background(), author, message))
 		})
 	}))
