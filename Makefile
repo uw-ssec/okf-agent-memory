@@ -1,4 +1,4 @@
-.PHONY: all build build-benchmark install test fmt vet lint vuln audit-security jules-list jules-review jules-merge validate validate-examples validate-all check release dist-bundle benchmark clean help
+.PHONY: all build build-benchmark install test fmt vet lint vuln security-audit validate validate-examples validate-all check release benchmark clean help sync-assets update-deps update-tools
 
 BIN := bin/okf
 BUNDLE := knowledge
@@ -16,12 +16,19 @@ all: help
 ## Pipeline & Verification
 ## ----------------------------------------------------------------------
 
-## check: Run the complete CI/local pipeline (fmt, vet, lint, test, validate-all)
-check: fmt vet lint test validate-all
+## check: Run the complete CI/local pipeline (fmt, vet, lint, security-audit, test, validate-all)
+check: fmt vet lint security-audit test validate-all
 
-## test: Run all Go unit and integration tests
+## test: Run all Go unit and integration tests (including dogfood asset drift check)
 test:
-	@go test -v ./...
+	@go test -v -race ./...
+
+## sync-assets: Synchronize active skill files (.agents/skills/) to embedded bootstrap assets (pkg/okf/assets/skill/)
+sync-assets:
+	@echo "==> Synchronizing dogfooded skills to embedded bootstrap assets..."
+	@mkdir -p pkg/okf/assets/skill
+	@cp -R .agents/skills/okf-memory/* pkg/okf/assets/skill/
+	@echo "==> Done. Embedded assets in pkg/okf/assets/skill/ are now synchronized."
 
 ## fmt: Format all Go source files with gofumpt / gofmt
 fmt:
@@ -31,12 +38,16 @@ fmt:
 vet:
 	@go vet ./...
 
-## lint: Run golangci-lint static analysis (falls back to go vet)
+## lint: Run golangci-lint static analysis (falls back to go vet if not installed)
 lint:
-	@which golangci-lint > /dev/null && golangci-lint run ./... || go vet ./...
+	@if command -v golangci-lint > /dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		go vet ./...; \
+	fi
 
-## audit-security: Run automated security analysis (gosec and govulncheck)
-audit-security:
+## security-audit: Run automated security analysis (gosec and govulncheck)
+security-audit:
 	@echo "==> Running security checks..."
 	@which gosec > /dev/null && gosec -quiet -exclude=G301,G306 -exclude-dir=examples ./... || echo "gosec: optional (install via: go install github.com/securego/gosec/v2/cmd/gosec@latest)"
 	@which govulncheck > /dev/null && govulncheck ./... || echo "govulncheck: optional (install via: go install golang.org/x/vuln/cmd/govulncheck@latest)"
@@ -45,17 +56,25 @@ audit-security:
 vuln:
 	@govulncheck ./...
 
-## jules-list: List open Google Jules security audit branches on origin
-jules-list:
-	@./scripts/jules-flow.sh list
+## ----------------------------------------------------------------------
+## Tooling & Dependencies
+## ----------------------------------------------------------------------
 
-## jules-review: Build, test, and review latest or specified Jules branch (BRANCH=<name>) in an isolated worktree
-jules-review:
-	@./scripts/jules-flow.sh review $(BRANCH)
+## update-deps: Update Go module dependencies and development/security tools
+update-deps: update-tools
+	@echo "==> Updating Go module dependencies..."
+	@go get -u ./...
+	@go mod tidy
+	@echo "==> Dependencies updated successfully."
 
-## jules-merge: Merge verified Jules remediation branch into develop (BRANCH=<name>)
-jules-merge:
-	@./scripts/jules-flow.sh merge $(BRANCH)
+## update-tools: Install or update development and security tools to latest versions
+update-tools:
+	@echo "==> Updating development and security tools..."
+	@go install golang.org/x/vuln/cmd/govulncheck@latest
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install mvdan.cc/gofumpt@latest
+	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@echo "==> Tools updated successfully."
 
 ## ----------------------------------------------------------------------
 ## Build & OKF Knowledge Validation
@@ -79,11 +98,11 @@ install:
 validate: build
 	@$(BIN) validate $(BUNDLE) --strict --drift
 
-## validate-examples: Validate all bundled example corpora
+## validate-examples: Validate all bundled example corpora including AGENTS.md governance
 validate-examples: build
-	@$(BIN) validate examples/software --strict
-	@$(BIN) validate examples/coaching --strict
-	@$(BIN) validate examples/books --strict
+	@$(BIN) validate --agents --strict examples/software
+	@$(BIN) validate --agents --strict examples/coaching
+	@$(BIN) validate --agents --strict examples/books
 
 ## validate-all: Validate project knowledge and all examples
 validate-all: validate validate-examples
@@ -104,14 +123,6 @@ release:
 	@GOOS=windows GOARCH=arm64 go build -ldflags="$(RELEASE_LDFLAGS)" -o $(DIST_DIR)/bin/okf-windows-arm64.exe ./cmd/okf
 	@echo "Release binaries built in $(DIST_DIR)/bin/"
 
-## dist-bundle: Package a complete, ready-to-use starter pack archive (.tar.gz and .zip)
-dist-bundle: build
-	@mkdir -p $(DIST_DIR)/okf-starter-pack
-	@$(BIN) bootstrap $(DIST_DIR)/okf-starter-pack --name "Project"
-	@mkdir -p $(DIST_DIR)/okf-starter-pack/bin && cp $(BIN) $(DIST_DIR)/okf-starter-pack/bin/okf
-	@tar -czf $(DIST_DIR)/okf-starter-pack-v$(VERSION).tar.gz -C $(DIST_DIR) okf-starter-pack
-	@cd $(DIST_DIR) && zip -q -r okf-starter-pack-v$(VERSION).zip okf-starter-pack
-	@echo "Created $(DIST_DIR)/okf-starter-pack-v$(VERSION).tar.gz and .zip"
 
 ## benchmark: Run local LLM progressive disclosure benchmark suite against LM Studio
 benchmark:
@@ -131,10 +142,11 @@ help:
 	@echo "  make fmt               Format code with gofumpt / gofmt"
 	@echo "  make vet               Run go vet static analysis"
 	@echo "  make lint              Run golangci-lint (fallback: go vet)"
-	@echo "  make audit-security    Run automated security audit (gosec, govulncheck)"
-	@echo "  make jules-list        List open Jules security branches on origin"
-	@echo "  make jules-review      Run isolated build & test of latest Jules branch"
-	@echo "  make jules-merge       Merge verified Jules branch into develop"
+	@echo "  make security-audit    Run automated security audit (gosec, govulncheck)"
+	@echo ""
+	@echo "Tooling & Dependencies:"
+	@echo "  make update-deps       Update Go dependencies and dev/security tools"
+	@echo "  make update-tools      Install or update tools (govulncheck, golangci-lint, gofumpt, gosec)"
 	@echo ""
 	@echo "Build & Knowledge:"
 	@echo "  make build             Compile bin/okf executable"
@@ -145,6 +157,5 @@ help:
 	@echo ""
 	@echo "Distribution:"
 	@echo "  make release           Cross-compile binaries for macOS, Linux, and Windows"
-	@echo "  make dist-bundle       Build starter pack archives (.tar.gz & .zip)"
 	@echo "  make clean             Remove build and dist artifacts"
 	@echo "  make help              Display this help message"

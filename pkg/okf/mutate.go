@@ -3,12 +3,20 @@ package okf
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 	"unicode"
 )
+
+var newlineReplacer = strings.NewReplacer("\r", " ", "\n", " ")
+
+// frontmatterSmuggleRegex matches reserved frontmatter keys in a body line, including quoted keys
+// and whitespace before the colon, which a plain prefix check would miss.
+var frontmatterSmuggleRegex = regexp.MustCompile(`(?i)^\s*["']?(verified|governance|generated|type|status|code_refs|stale_after)["']?\s*:`)
 
 func titleCase(s string) string {
 	if s == "" {
@@ -19,34 +27,83 @@ func titleCase(s string) string {
 	return string(r)
 }
 
+// atomicWriteFile writes data to a temporary file in the same directory as targetPath,
+// flushes it to disk, and atomically replaces targetPath using os.Rename.
+func atomicWriteFile(targetPath string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", targetPath, err)
+	}
+
+	tmpFile, err := os.CreateTemp(dir, ".tmp-okf-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("failed to write to temporary file: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return fmt.Errorf("failed to sync temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		return fmt.Errorf("failed to set permissions on temporary file: %w", err)
+	}
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		return fmt.Errorf("failed to atomically replace %s: %w", targetPath, err)
+	}
+	return nil
+}
+
 // InitBundle initializes a new OKF v0.2 bundle with root index.md and log.md.
 func InitBundle(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	rootIndex := filepath.Join(dir, "index.md")
-	if _, err := os.Stat(rootIndex); os.IsNotExist(err) {
-		indexContent := "---\nokf_version: \"0.2\"\n---\n\n# Knowledge Base\n\n"
-		if err := os.WriteFile(rootIndex, []byte(indexContent), 0o644); err != nil {
-			return fmt.Errorf("failed to write root index.md: %w", err)
+	return WithBundleLock(dir, func() error {
+		rootIndex := filepath.Join(dir, "index.md")
+		if _, err := os.Stat(rootIndex); os.IsNotExist(err) {
+			indexContent := "---\nokf_version: \"0.2\"\n---\n\n# Knowledge Base\n\n"
+			if err := atomicWriteFile(rootIndex, []byte(indexContent), 0o644); err != nil {
+				return fmt.Errorf("failed to write root index.md: %w", err)
+			}
 		}
-	}
 
-	logFile := filepath.Join(dir, "log.md")
-	if _, err := os.Stat(logFile); os.IsNotExist(err) {
-		today := time.Now().UTC().Format("2006-01-02")
-		logContent := fmt.Sprintf("## %s\n* **Creation**: Initialized OKF v0.2 knowledge bundle.\n", today)
-		if err := os.WriteFile(logFile, []byte(logContent), 0o644); err != nil {
-			return fmt.Errorf("failed to write log.md: %w", err)
+		logFile := filepath.Join(dir, "log.md")
+		if _, err := os.Stat(logFile); os.IsNotExist(err) {
+			today := time.Now().UTC().Format("2006-01-02")
+			logContent := fmt.Sprintf("## %s\n* **Creation**: Initialized OKF v0.2 knowledge bundle.\n", today)
+			if err := atomicWriteFile(logFile, []byte(logContent), 0o644); err != nil {
+				return fmt.Errorf("failed to write log.md: %w", err)
+			}
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 // AppendLogEntry prepends a new dated change entry to log.md.
 func AppendLogEntry(bundleDir, entryType, description string) error {
+	logPath := filepath.Join(bundleDir, "log.md")
+	if _, err := ensureWithinRoot(bundleDir, logPath); err != nil {
+		return err
+	}
+	return WithBundleLock(bundleDir, func() error {
+		return appendLogEntryLocked(bundleDir, entryType, description)
+	})
+}
+
+func appendLogEntryLocked(bundleDir, entryType, description string) error {
 	entryType = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(entryType, "\r", " "), "\n", " "))
 	description = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(description, "\r", " "), "\n", " "))
 
@@ -64,16 +121,30 @@ func AppendLogEntry(bundleDir, entryType, description string) error {
 	}
 
 	heading := fmt.Sprintf("## %s\n", today)
-	if strings.Contains(existingContent, heading) {
-		// Insert under existing today heading
-		existingContent = strings.Replace(existingContent, heading, heading+newEntry, 1)
+	if idx := strings.Index(existingContent, heading); idx != -1 {
+		afterHeading := existingContent[idx+len(heading):]
+		nextHeadingIdx := strings.Index(afterHeading, "\n## ")
+		todaySection := afterHeading
+		if nextHeadingIdx != -1 {
+			todaySection = afterHeading[:nextHeadingIdx]
+		}
+
+		targetEntry := strings.TrimSpace(newEntry)
+		for _, line := range strings.Split(todaySection, "\n") {
+			if strings.TrimSpace(line) == targetEntry {
+				// Exact entry already recorded today; avoid redundant duplicate lines
+				return nil
+			}
+		}
+
+		existingContent = existingContent[:idx+len(heading)] + newEntry + existingContent[idx+len(heading):]
 	} else {
 		// Prepend today heading
 		existingContent = heading + newEntry + "\n" + strings.TrimLeft(existingContent, "\n")
 	}
 
 	// #nosec G703 -- logPath is validated and contained within bundle root
-	return os.WriteFile(logPath, []byte(existingContent), 0o644)
+	return atomicWriteFile(logPath, []byte(existingContent), 0o644)
 }
 
 // ValidateConceptID verifies that a concept ID conforms to OKF naming conventions
@@ -84,12 +155,31 @@ func ValidateConceptID(id string) error {
 		return fmt.Errorf("concept ID cannot be empty")
 	}
 
+	for _, r := range trimmed {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("concept ID %q contains forbidden control character U+%04X", id, r)
+		}
+		if unicode.In(r, unicode.Cf) {
+			return fmt.Errorf("concept ID %q contains forbidden format/invisible character U+%04X", id, r)
+		}
+		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("concept ID %q contains forbidden bidirectional override character U+%04X", id, r)
+		}
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("concept ID %q contains non-printable character U+%04X", id, r)
+		}
+	}
+
 	cleanID := strings.TrimSuffix(trimmed, ".md")
 	if cleanID == "" || cleanID == "." || cleanID == ".." {
 		return fmt.Errorf("invalid concept ID %q", id)
 	}
 
-	if filepath.IsAbs(cleanID) || strings.HasPrefix(cleanID, "/") || strings.HasPrefix(cleanID, "\\") {
+	if strings.HasPrefix(cleanID, "-") {
+		return fmt.Errorf("concept ID %q cannot start with a hyphen -", id)
+	}
+
+	if IsAbsPath(cleanID) {
 		return fmt.Errorf("concept ID %q must be a relative path", id)
 	}
 
@@ -102,15 +192,25 @@ func ValidateConceptID(id string) error {
 		return fmt.Errorf("concept ID %q contains forbidden '..' traversal", id)
 	}
 
+	if len(parts) > MaxConceptDirectoryDepth {
+		return fmt.Errorf("concept ID %q exceeds maximum directory depth of %d", id, MaxConceptDirectoryDepth)
+	}
+
+	for _, part := range parts {
+		if part != "." && strings.HasPrefix(part, ".") {
+			return fmt.Errorf("concept ID %q cannot contain hidden directory or dot-file component %q", id, part)
+		}
+	}
+
 	// Clean path and ensure it does not escape
-	cleaned := filepath.Clean(cleanID)
+	cleaned := filepath.Clean(strings.ReplaceAll(cleanID, "\\", "/"))
 	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("concept ID %q escapes bundle directory", id)
 	}
 
 	// Check for reserved filenames (index.md anywhere, root log.md, root AGENTS.md)
 	base := filepath.Base(cleaned)
-	normClean := filepath.ToSlash(cleaned)
+	normClean := strings.ReplaceAll(cleaned, "\\", "/")
 	if strings.EqualFold(base, "index") || strings.EqualFold(base, "index.md") ||
 		strings.EqualFold(normClean, "log") || strings.EqualFold(normClean, "log.md") ||
 		strings.EqualFold(normClean, "AGENTS") || strings.EqualFold(normClean, "AGENTS.md") {
@@ -127,15 +227,45 @@ func UpdateParentIndex(bundleDir string, c *Concept) error {
 		return fmt.Errorf("invalid bundle directory: %w", err)
 	}
 
-	dir := filepath.Dir(c.Path)
+	normConceptPath := strings.ReplaceAll(c.Path, "\\", "/")
+	dir := path.Dir(normConceptPath)
 	indexRelPath := "index.md"
 	if dir != "." {
-		indexRelPath = filepath.Join(dir, "index.md")
+		indexRelPath = filepath.Join(filepath.FromSlash(dir), "index.md")
 	}
 
 	indexPath := filepath.Join(absBundle, filepath.Clean(indexRelPath))
 	rel, err := filepath.Rel(absBundle, indexPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	relSlash := strings.ReplaceAll(rel, "\\", "/")
+	if err != nil || relSlash == ".." || strings.HasPrefix(relSlash, "../") {
+		return fmt.Errorf("path traversal denied: parent index %q escapes bundle directory", indexRelPath)
+	}
+	if _, err := ensureWithinRoot(bundleDir, indexPath); err != nil {
+		return err
+	}
+
+	return WithBundleLock(bundleDir, func() error {
+		return updateParentIndexLocked(bundleDir, c)
+	})
+}
+
+func updateParentIndexLocked(bundleDir string, c *Concept) error {
+	absBundle, err := filepath.Abs(bundleDir)
+	if err != nil {
+		return fmt.Errorf("invalid bundle directory: %w", err)
+	}
+
+	normConceptPath := strings.ReplaceAll(c.Path, "\\", "/")
+	dir := path.Dir(normConceptPath)
+	indexRelPath := "index.md"
+	if dir != "." {
+		indexRelPath = filepath.Join(filepath.FromSlash(dir), "index.md")
+	}
+
+	indexPath := filepath.Join(absBundle, filepath.Clean(indexRelPath))
+	rel, err := filepath.Rel(absBundle, indexPath)
+	relSlash := strings.ReplaceAll(rel, "\\", "/")
+	if err != nil || relSlash == ".." || strings.HasPrefix(relSlash, "../") {
 		return fmt.Errorf("path traversal denied: parent index %q escapes bundle directory", indexRelPath)
 	}
 	if _, err := ensureWithinRoot(bundleDir, indexPath); err != nil {
@@ -189,7 +319,7 @@ func UpdateParentIndex(bundleDir string, c *Concept) error {
 	}
 
 	// #nosec G703 -- indexPath is verified within bundleDir
-	return os.WriteFile(indexPath, []byte(existingContent), 0o644)
+	return atomicWriteFile(indexPath, []byte(existingContent), 0o644)
 }
 
 // resolveInBundle joins relPath onto bundleDir and refuses any result that
@@ -200,18 +330,26 @@ func resolveInBundle(bundleDir, relPath string) (string, error) {
 		return "", fmt.Errorf("failed to resolve bundle directory: %w", err)
 	}
 
-	cleanRel := filepath.Clean(relPath)
+	if IsAbsPath(relPath) {
+		return "", fmt.Errorf("concept path %q must be a relative path", relPath)
+	}
+
+	// Normalize backslashes to forward slashes before calling filepath.Clean
+	// to prevent Windows-style backslash traversal vectors (e.g. "..\..\file") on POSIX OS.
+	normRel := strings.ReplaceAll(relPath, "\\", "/")
+	cleanRel := filepath.Clean(normRel)
 	full := filepath.Join(absBundle, cleanRel)
 	rel, err := filepath.Rel(absBundle, full)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve concept path %q: %w", relPath, err)
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	relSlash := strings.ReplaceAll(rel, "\\", "/")
+	if relSlash == ".." || strings.HasPrefix(relSlash, "../") {
 		return "", fmt.Errorf("path traversal denied: concept path %q escapes bundle directory", relPath)
 	}
 	// Check reserved filenames on relative path (index.md anywhere, root log.md, root AGENTS.md)
 	relBase := filepath.Base(cleanRel)
-	normRel := filepath.ToSlash(rel)
+	normRel = filepath.ToSlash(rel)
 	if rel == "." || cleanRel == "." ||
 		strings.EqualFold(relBase, "index") || strings.EqualFold(relBase, "index.md") ||
 		strings.EqualFold(normRel, "log.md") || strings.EqualFold(normRel, "AGENTS.md") {
@@ -281,21 +419,92 @@ func sanitizeConceptMetadata(c *Concept) error {
 			return fmt.Errorf("concept %s cannot contain frontmatter delimiter '---'", f.name)
 		}
 	}
+
+	// Security: prevent frontmatter smuggling in body (e.g. forging verified/governance via nested --- blocks)
+	if c.Body != "" {
+		lines := strings.Split(c.Body, "\n")
+		inDelimiter := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "---" {
+				inDelimiter = !inDelimiter
+				continue
+			}
+			if inDelimiter {
+				if trimmed == "" {
+					continue
+				}
+				if match := frontmatterSmuggleRegex.FindStringSubmatch(trimmed); match != nil {
+					return fmt.Errorf("concept body cannot smuggle frontmatter block containing %q", match[1])
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
+// SaveOptions controls bookkeeping and authoring metadata when persisting a concept.
+type SaveOptions struct {
+	IsNew     bool
+	AutoLog   bool
+	AutoIndex bool
+	Actor     string
+}
+
 // SaveConcept writes a concept file to disk and optionally executes automatic bookkeeping.
-func SaveConcept(bundleDir string, c *Concept, isNew, autoLog, autoIndex bool, actor string) error {
+// The entire mutation (concept file write + parent index update + log entry) executes
+// inside a cross-process bundle write lock, and performs an optimistic concurrency check
+// when persisting an existing concept loaded via LoadBundle.
+func SaveConcept(bundleDir string, c *Concept, opts SaveOptions) error {
+	if c.ID == "" && c.Path != "" {
+		c.ID = strings.TrimSuffix(c.Path, ".md")
+	}
+	if err := ValidateConceptID(c.ID); err != nil {
+		return fmt.Errorf("invalid concept ID: %w", err)
+	}
+
+	if _, err := resolveInBundle(bundleDir, c.Path); err != nil {
+		return err
+	}
+
+	return WithBundleLock(bundleDir, func() error {
+		return saveConceptLocked(bundleDir, c, opts)
+	})
+}
+
+func saveConceptLocked(bundleDir string, c *Concept, opts SaveOptions) error {
+	if c.ID == "" && c.Path != "" {
+		c.ID = strings.TrimSuffix(c.Path, ".md")
+	}
+	if err := ValidateConceptID(c.ID); err != nil {
+		return fmt.Errorf("invalid concept ID: %w", err)
+	}
+
 	fullPath, err := resolveInBundle(bundleDir, c.Path)
 	if err != nil {
 		return err
 	}
 
 	// Update generated timestamp & actor
-	actor = strings.TrimSpace(actor)
+	actor := strings.TrimSpace(opts.Actor)
 	if actor == "" {
 		actor = "agent/okf-tool"
 	}
+	if err := ensureNoForgedHumanVerification(fullPath, c, actor, opts.IsNew); err != nil {
+		return err
+	}
+
+	// Stage 2b: Optimistic Concurrency Check (CAS) when updating a concept loaded from disk
+	if !opts.IsNew && c.sourceHash != "" {
+		// #nosec G304 -- fullPath is validated and confined to bundleDir by resolveInBundle
+		if diskData, readErr := os.ReadFile(fullPath); readErr == nil {
+			if hashConceptContent(string(diskData)) != c.sourceHash {
+				return fmt.Errorf("%w: concept %q was modified on disk since it was loaded", ErrConcurrentModification, c.Path)
+			}
+		}
+	}
+
 	c.Generated = &Generated{
 		By: actor,
 		At: time.Now().UTC().Format(time.RFC3339),
@@ -316,25 +525,29 @@ func SaveConcept(bundleDir string, c *Concept, isNew, autoLog, autoIndex bool, a
 	}
 
 	raw := SerializeConcept(c)
-	if err := os.WriteFile(fullPath, []byte(raw), 0o644); err != nil {
+	if err := atomicWriteFile(fullPath, []byte(raw), 0o644); err != nil {
 		return fmt.Errorf("failed to write concept: %w", err)
+	}
+	c.RawContent = raw
+	if c.sourceHash != "" {
+		c.sourceHash = hashConceptContent(raw)
 	}
 
 	// Automated Bookkeeping
-	if autoIndex {
-		if err := UpdateParentIndex(bundleDir, c); err != nil {
+	if opts.AutoIndex {
+		if err := updateParentIndexLocked(bundleDir, c); err != nil {
 			return fmt.Errorf("failed to update parent index: %w", err)
 		}
 	}
 
-	if autoLog {
+	if opts.AutoLog {
 		entryType := "Update"
 		desc := fmt.Sprintf("Updated concept `%s`.", c.Path)
-		if isNew {
+		if opts.IsNew {
 			entryType = "Creation"
 			desc = fmt.Sprintf("Documented concept `%s` (%s).", c.Path, c.Title)
 		}
-		if err := AppendLogEntry(bundleDir, entryType, desc); err != nil {
+		if err := appendLogEntryLocked(bundleDir, entryType, desc); err != nil {
 			return fmt.Errorf("failed to append log entry: %w", err)
 		}
 	}
@@ -342,9 +555,48 @@ func SaveConcept(bundleDir string, c *Concept, isNew, autoLog, autoIndex bool, a
 	return nil
 }
 
+// UpdateConcept loads the latest concept state from bundleDir, applies mutateFn,
+// and saves the updated concept (including optional index and log bookkeeping)
+// atomically inside a single cross-process bundle write lock.
+func UpdateConcept(bundleDir, conceptID string, opts SaveOptions, mutateFn func(c *Concept) error) (*Concept, error) {
+	cleanID := strings.TrimSpace(strings.TrimSuffix(conceptID, ".md"))
+	if err := ValidateConceptID(cleanID); err != nil {
+		return nil, fmt.Errorf("invalid concept ID: %w", err)
+	}
+
+	var result *Concept
+	err := WithBundleLock(bundleDir, func() error {
+		b, err := LoadBundle(bundleDir)
+		if err != nil {
+			return fmt.Errorf("failed to load bundle: %w", err)
+		}
+
+		c, ok := b.Concepts[cleanID]
+		if !ok {
+			return fmt.Errorf("%w: '%s' in %s", ErrConceptNotFound, cleanID, bundleDir)
+		}
+
+		updated := *c
+		if err := mutateFn(&updated); err != nil {
+			return err
+		}
+
+		opts.IsNew = false
+		if err := saveConceptLocked(bundleDir, &updated, opts); err != nil {
+			return err
+		}
+		result = &updated
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // RelateConcepts creates a relative markdown link between source and target concepts.
 func RelateConcepts(bundleDir, sourceID, targetID, relationDesc, actor string) error {
-	relationDesc = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(relationDesc, "\r", " "), "\n", " "))
+	relationDesc = strings.TrimSpace(newlineReplacer.Replace(relationDesc))
 
 	sourceID = strings.TrimSpace(strings.TrimSuffix(sourceID, ".md"))
 	targetID = strings.TrimSpace(strings.TrimSuffix(targetID, ".md"))
@@ -359,52 +611,165 @@ func RelateConcepts(bundleDir, sourceID, targetID, relationDesc, actor string) e
 		return fmt.Errorf("cannot relate concept to itself (%s)", sourceID)
 	}
 
-	b, err := LoadBundle(bundleDir)
-	if err != nil {
-		return fmt.Errorf("failed to load bundle: %w", err)
-	}
+	return WithBundleLock(bundleDir, func() error {
+		b, err := LoadBundle(bundleDir)
+		if err != nil {
+			return fmt.Errorf("failed to load bundle: %w", err)
+		}
 
-	srcConcept, ok := b.Concepts[sourceID]
+		srcConcept, ok := b.Concepts[sourceID]
+		if !ok {
+			return fmt.Errorf("source concept '%s' not found", sourceID)
+		}
+
+		tgtConcept, ok := b.Concepts[targetID]
+		if !ok {
+			return fmt.Errorf("target concept '%s' not found", targetID)
+		}
+
+		// Compute relative path from source's directory to target
+		srcDir := filepath.Dir(srcConcept.Path)
+		relPath, err := filepath.Rel(srcDir, tgtConcept.Path)
+		if err != nil {
+			return fmt.Errorf("failed to compute relative path: %w", err)
+		}
+		relPath = filepath.ToSlash(relPath)
+
+		linkText := tgtConcept.Title
+		if linkText == "" {
+			linkText = filepath.Base(targetID)
+		}
+
+		relStatement := fmt.Sprintf("\n- Related to [%s](%s)", linkText, relPath)
+		if relationDesc != "" {
+			relStatement = fmt.Sprintf("\n- [%s](%s): %s", linkText, relPath, relationDesc)
+		}
+		if hasRelationship(srcConcept.Body, relPath, relationDesc) {
+			return nil
+		}
+
+		srcConcept.Body = insertRelationship(srcConcept.Body, strings.TrimPrefix(relStatement, "\n"))
+
+		if err := saveConceptLocked(bundleDir, srcConcept, SaveOptions{
+			IsNew:     false,
+			AutoLog:   false,
+			AutoIndex: false,
+			Actor:     actor,
+		}); err != nil {
+			return fmt.Errorf("failed to save related concept: %w", err)
+		}
+
+		logDesc := fmt.Sprintf("Linked `%s` to `%s`.", srcConcept.Path, tgtConcept.Path)
+		if relationDesc != "" {
+			logDesc = fmt.Sprintf("Linked `%s` to `%s` (%s).", srcConcept.Path, tgtConcept.Path, relationDesc)
+		}
+		return appendLogEntryLocked(bundleDir, "Update", logDesc)
+	})
+}
+
+func hasRelationship(body, relPath, relationDesc string) bool {
+	lines := strings.Split(body, "\n")
+	start, end, ok := relatedSectionBounds(lines)
 	if !ok {
-		return fmt.Errorf("source concept '%s' not found", sourceID)
+		return false
 	}
+	inFence := false
+	for _, line := range lines[start:end] {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		clean := trimmed
+		if strings.HasPrefix(clean, "- ") || strings.HasPrefix(clean, "* ") {
+			clean = clean[2:]
+		}
+		if relationDesc == "" {
+			if (strings.HasPrefix(trimmed, "- Related to [") || strings.HasPrefix(trimmed, "* Related to [") || strings.HasPrefix(clean, "Related to [") || strings.HasPrefix(clean, "[")) && strings.Contains(clean, "]("+relPath+")") {
+				return true
+			}
+			continue
+		}
+		if (strings.HasPrefix(clean, "[") || strings.HasPrefix(trimmed, "- [") || strings.HasPrefix(trimmed, "* [")) && (strings.HasSuffix(trimmed, "]("+relPath+"): "+relationDesc) || strings.HasSuffix(clean, "]("+relPath+"): "+relationDesc)) {
+			return true
+		}
+	}
+	return false
+}
 
-	tgtConcept, ok := b.Concepts[targetID]
+func insertRelationship(body, relLine string) string {
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	_, end, ok := relatedSectionBounds(lines)
 	if !ok {
-		return fmt.Errorf("target concept '%s' not found", targetID)
+		return strings.TrimRight(body, "\n") + "\n\n# Related Concepts\n" + relLine + "\n"
 	}
 
-	// Compute relative path from source's directory to target
-	srcDir := filepath.Dir(srcConcept.Path)
-	relPath, err := filepath.Rel(srcDir, tgtConcept.Path)
-	if err != nil {
-		return fmt.Errorf("failed to compute relative path: %w", err)
+	before := strings.TrimRight(strings.Join(lines[:end], "\n"), "\n")
+	after := strings.TrimLeft(strings.Join(lines[end:], "\n"), "\n")
+	if after == "" {
+		return before + "\n" + relLine + "\n"
 	}
-	relPath = filepath.ToSlash(relPath)
+	return before + "\n" + relLine + "\n\n" + after + "\n"
+}
 
-	linkText := tgtConcept.Title
-	if linkText == "" {
-		linkText = filepath.Base(targetID)
+func parseHeading(line string) (int, string) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "#") {
+		return 0, ""
 	}
+	level := 0
+	for level < len(trimmed) && trimmed[level] == '#' {
+		level++
+	}
+	if level > 6 || level == len(trimmed) || trimmed[level] != ' ' {
+		return 0, ""
+	}
+	title := strings.TrimSpace(trimmed[level:])
+	return level, title
+}
 
-	relStatement := fmt.Sprintf("\n- Related to [%s](%s)", linkText, relPath)
-	if relationDesc != "" {
-		relStatement = fmt.Sprintf("\n- [%s](%s): %s", linkText, relPath, relationDesc)
+func isRelatedHeading(title string) bool {
+	norm := strings.TrimSpace(strings.ToLower(title))
+	for len(norm) > 0 {
+		r := rune(norm[0])
+		if (r >= '0' && r <= '9') || r == '.' || r == '-' || r == ')' || r == ' ' || r == ':' {
+			norm = strings.TrimSpace(norm[1:])
+		} else {
+			break
+		}
 	}
+	return norm == "related concepts" || norm == "related" || strings.HasPrefix(norm, "related concepts")
+}
 
-	if !strings.Contains(srcConcept.Body, "# Related") {
-		srcConcept.Body = strings.TrimRight(srcConcept.Body, "\n") + "\n\n# Related Concepts" + relStatement + "\n"
-	} else {
-		srcConcept.Body = strings.TrimRight(srcConcept.Body, "\n") + relStatement + "\n"
+func relatedSectionBounds(lines []string) (int, int, bool) {
+	inFence := false
+	start := -1
+	startLevel := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if start == -1 {
+			if level, title := parseHeading(line); level > 0 && isRelatedHeading(title) {
+				start = i + 1
+				startLevel = level
+			}
+			continue
+		}
+		if level, _ := parseHeading(line); level > 0 && level <= startLevel {
+			return start, i, true
+		}
 	}
-
-	if err := SaveConcept(bundleDir, srcConcept, false, true, false, actor); err != nil {
-		return fmt.Errorf("failed to save related concept: %w", err)
+	if start != -1 {
+		return start, len(lines), true
 	}
-
-	logDesc := fmt.Sprintf("Linked `%s` to `%s`.", srcConcept.Path, tgtConcept.Path)
-	if relationDesc != "" {
-		logDesc = fmt.Sprintf("Linked `%s` to `%s` (%s).", srcConcept.Path, tgtConcept.Path, relationDesc)
-	}
-	return AppendLogEntry(bundleDir, "Update", logDesc)
+	return 0, 0, false
 }

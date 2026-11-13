@@ -2,6 +2,8 @@ package okf
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -9,30 +11,44 @@ import (
 )
 
 var (
-	isoDateRegex  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	validStatuses = map[string]bool{"draft": true, "stable": true, "deprecated": true}
+	isoDateRegex     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	validStatuses    = map[string]bool{"draft": true, "stable": true, "deprecated": true}
+	validGovernances = map[string]bool{
+		GovernanceConstraint: true,
+		GovernanceHold:       true,
+		GovernanceContext:    true,
+	}
 )
+
+// IsValidConceptStatus reports whether status is an OKF v0.2 lifecycle value.
+func IsValidConceptStatus(status string) bool {
+	return validStatuses[status]
+}
 
 // ValidationResult contains all validation diagnostics.
 type ValidationResult struct {
-	BundlePath   string       `json:"bundle_path"`
-	DeclaredVer  string       `json:"declared_version,omitempty"`
-	ConceptCount int          `json:"concept_count"`
-	Errors       []string     `json:"errors"`
-	Warnings     []string     `json:"warnings"`
-	GateFindings []string     `json:"gate_findings"`
-	BrokenLinks  []BrokenLink `json:"broken_links"`
-	Orphans      []string     `json:"orphans"`
-	StaleCount   int          `json:"stale_count"`
-	IsConformant bool         `json:"is_conformant"`
-	GatePassed   bool         `json:"gate_passed"`
+	BundlePath   string           `json:"bundle_path"`
+	DeclaredVer  string           `json:"declared_version,omitempty"`
+	ConceptCount int              `json:"concept_count"`
+	Errors       []string         `json:"errors"`
+	Warnings     []string         `json:"warnings"`
+	GateFindings []string         `json:"gate_findings"`
+	BrokenLinks  []BrokenLink     `json:"broken_links"`
+	Orphans      []string         `json:"orphans"`
+	StaleCount   int              `json:"stale_count"`
+	IsConformant bool             `json:"is_conformant"`
+	GatePassed   bool             `json:"gate_passed"`
+	Scorecard    *ScorecardResult `json:"scorecard,omitempty"`
 }
 
 // ValidateOptions controls validation severity and checks.
 type ValidateOptions struct {
-	Strict bool
-	Drift  bool
-	Stale  bool
+	Strict      bool
+	Drift       bool
+	Stale       bool
+	StaleWithin time.Duration
+	Scorecard   bool
+	MinScore    int
 }
 
 func parseTimestamp(s string) (time.Time, bool) {
@@ -190,8 +206,28 @@ func Validate(b *Bundle, opts ValidateOptions) *ValidationResult {
 			}
 		}
 
+		// Governance validation
+		if c.Governance != "" && !validGovernances[strings.ToLower(c.Governance)] {
+			res.GateFindings = append(res.GateFindings, fmt.Sprintf("%s: governance '%s' is not constraint|hold|context", at, c.Governance))
+		}
+
+		// CodeRefs traversal & boundary validation (CWE-22 prevention)
+		for _, ref := range c.CodeRefs {
+			refTrimmed := strings.TrimSpace(ref)
+			if refTrimmed == "" {
+				continue
+			}
+			normRef := strings.ReplaceAll(refTrimmed, "\\", "/")
+			cleanRef := filepath.Clean(normRef)
+			if IsAbsPath(cleanRef) {
+				res.GateFindings = append(res.GateFindings, fmt.Sprintf("%s: code_refs '%s' must be a relative path", at, refTrimmed))
+			} else if cleanRef == ".." || strings.HasPrefix(cleanRef, ".."+string(filepath.Separator)) || strings.HasPrefix(cleanRef, "../") {
+				res.GateFindings = append(res.GateFindings, fmt.Sprintf("%s: code_refs '%s' contains forbidden '..' traversal", at, refTrimmed))
+			}
+		}
+
 		// Lifecycle validation
-		if c.Status != "" && !validStatuses[c.Status] {
+		if c.Status != "" && !IsValidConceptStatus(c.Status) {
 			res.GateFindings = append(res.GateFindings, fmt.Sprintf("%s: status '%s' is not draft|stable|deprecated", at, c.Status))
 		}
 		if c.StaleAfter != "" {
@@ -200,11 +236,14 @@ func Validate(b *Bundle, opts ValidateOptions) *ValidationResult {
 			} else if today >= c.StaleAfter {
 				res.StaleCount++
 				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: concept is stale (stale_after %s <= %s)", at, c.StaleAfter, today))
+			} else if opts.StaleWithin > 0 && c.IsStaleWithin(time.Now().UTC(), opts.StaleWithin) {
+				res.StaleCount++
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: concept will become stale soon (stale_after %s within %v)", at, c.StaleAfter, opts.StaleWithin))
 			}
 		}
 	}
 
-	// 4. Drift check: compare index descriptions against concept descriptions
+	// 4. Drift check: compare index descriptions against concept descriptions & verify code_refs
 	if opts.Drift {
 		normText := func(s string) string {
 			s = strings.ToLower(s)
@@ -222,6 +261,9 @@ func Validate(b *Bundle, opts ValidateOptions) *ValidationResult {
 			matches := entryRegex.FindAllStringSubmatch(StripFences(idxContent), -1)
 			for _, m := range matches {
 				href := m[1]
+				if IsExternalLink(href) {
+					continue
+				}
 				listingDesc := m[2]
 				targetID := b.ResolveLink(idxPath, href)
 				if concept, ok := b.Concepts[targetID]; ok && concept.Description != "" {
@@ -231,12 +273,86 @@ func Validate(b *Bundle, opts ValidateOptions) *ValidationResult {
 				}
 			}
 		}
+
+		// Check that each concept is listed in its immediate parent index.md
+		if len(b.Indexes) > 0 {
+			indexTargets := make(map[string]map[string]bool, len(b.Indexes))
+			for idxPath, idxContent := range b.Indexes {
+				body := StripFences(idxContent)
+				matches := linkRegex.FindAllStringSubmatch(body, -1)
+				targets := make(map[string]bool, len(matches))
+				for _, match := range matches {
+					if IsExternalLink(match[1]) {
+						continue
+					}
+					if targetID := b.ResolveLink(idxPath, match[1]); targetID != "" {
+						targets[targetID] = true
+					}
+				}
+				indexTargets[idxPath] = targets
+			}
+
+			for _, c := range b.Concepts {
+				normConceptPath := strings.ReplaceAll(c.Path, "\\", "/")
+				dir := path.Dir(normConceptPath)
+				indexRel := "index.md"
+				if dir != "." {
+					indexRel = path.Join(dir, "index.md")
+				}
+				targets, ok := indexTargets[indexRel]
+				if !ok {
+					res.Warnings = append(res.Warnings, fmt.Sprintf("%s: parent index %s does not exist", c.Path, indexRel))
+					continue
+				}
+
+				if !targets[c.ID] {
+					res.Warnings = append(res.Warnings, fmt.Sprintf("%s: concept is not listed in parent index %s", c.Path, indexRel))
+				}
+			}
+		}
+
+		// Check code_refs drift (verify non-glob references exist in repository or bundle)
+		bundleAbs, _ := filepath.Abs(b.RootPath)
+		projectRoot := filepath.Dir(bundleAbs)
+		for _, c := range b.Concepts {
+			at := c.Path
+			for _, ref := range c.CodeRefs {
+				refTrimmed := strings.TrimSpace(ref)
+				if refTrimmed == "" || strings.ContainsAny(refTrimmed, "*?[{") {
+					continue
+				}
+				cleanRef := filepath.Clean(refTrimmed)
+				if cleanRef == ".." || strings.HasPrefix(cleanRef, ".."+string(filepath.Separator)) || IsAbsPath(cleanRef) {
+					continue
+				}
+				pathInProj := filepath.Join(projectRoot, cleanRef)
+				relProj, errRel := filepath.Rel(projectRoot, pathInProj)
+				if errRel != nil || relProj == ".." || strings.HasPrefix(relProj, ".."+string(filepath.Separator)) {
+					continue
+				}
+				pathInBundle := filepath.Join(bundleAbs, cleanRef)
+				_, errProj := os.Stat(pathInProj)
+				_, errBundle := os.Stat(pathInBundle)
+				if errProj != nil && errBundle != nil {
+					res.Warnings = append(res.Warnings, fmt.Sprintf("%s: code_refs '%s' points to non-existent path", at, refTrimmed))
+				}
+			}
+		}
+	}
+
+	if opts.Scorecard || opts.MinScore > 0 {
+		res.Scorecard = ComputeScorecard(b)
+	}
+
+	if opts.MinScore > 0 && res.Scorecard != nil && res.Scorecard.Score < opts.MinScore {
+		res.GateFindings = append(res.GateFindings, fmt.Sprintf("quality score %d is below required minimum %d (Grade: %s)", res.Scorecard.Score, opts.MinScore, res.Scorecard.Grade))
 	}
 
 	res.IsConformant = len(res.Errors) == 0
 	gateFailure := (opts.Strict && (len(b.BrokenLinks) > 0 || len(b.Orphans) > 0)) ||
 		(opts.Strict && isV2 && len(res.GateFindings) > 0) ||
-		(opts.Stale && res.StaleCount > 0)
+		(opts.MinScore > 0 && res.Scorecard != nil && res.Scorecard.Score < opts.MinScore) ||
+		((opts.Stale || opts.StaleWithin > 0) && res.StaleCount > 0)
 	res.GatePassed = res.IsConformant && !gateFailure
 
 	return res

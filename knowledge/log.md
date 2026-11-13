@@ -1,5 +1,146 @@
+## 2026-11-05
+* **Update**: Updated concept `roadmap/milestones.md`.
+* **Update**: Updated concept `convention/contributing.md`.
+* **Update**: Updated concept `convention/coding-standards.md`.
+* **Update**: Updated concept `convention/security-audit.md`.
+* **Update**: Updated concept `architecture/security-boundaries.md`.
+* **Update**: Updated concept `architecture/zero-knowledge-vault-sync.md`.
+
+## 2026-10-29
+* **Update**: Prepared draft release notes for v0.8.0 (declarative bundle scope isolation via `scopes` in root `index.md` frontmatter, fail-closed scope validation, and removal of the legacy `--scope bundle` alias).
+* **Update**: Updated concept `roadmap/milestones.md`.
+* **Update**: Updated concept `architecture/registry-and-vendor-layering.md`.
+
+## 2026-10-28
+* **Release**: Published version v0.7.2: remote path containment in hub sync and registry installs (#64), staged atomic rollbacks for `okf pull` and `okf restore`, and pre-symlink bundle root absolutisation under symlinked working directories (#62, #63).
+* **Update**: Updated concept `architecture/security-boundaries.md`.
+
+## 2026-10-27
+* **Release**: Published version v0.7.1: nearest-first scope resolution in show (#47, #61), safe preservation of non-standard metadata in sources (#57), relative nested MCP bundle path resolution (#58), and staticcheck QF1008 embedded selector cleanup.
+* **Update**: Updated concept `architecture/security-boundaries.md`.
+* **Update**: Updated concept `architecture/metadata-roundtrip.md`.
+* **Update**: Documented remote input write containment in `architecture/security-boundaries.md`: hub tree paths, registry bundle ids, and archive entries must resolve inside the bundle or workspace before any write, and `okf pull`/`okf restore` install through a staging directory so rollback removes only what the invocation created.
+
+## 2026-10-26
+* **Update**: Updated concept `architecture/registry-and-vendor-layering.md`.
+
+## 2026-10-20
+* **Release**: Published version v0.7.0: bundle quality scorecards (Phase 21), deterministic pre-pull quality gating (`--min-score`) with atomic filesystem rollback, machine-readable Scorecard JSON telemetry, and duplicate-safe ISO date log mutations.
+* **Update**: Completed phase 21 (Bundle Quality Scorecards & Pre-Pull Gating) in `roadmap/milestones.md`.
+* **Update**: Updated concept `architecture/bundle-quality-scorecards.md`.
+* **Update**: Linked `architecture/bundle-quality-scorecards.md` to `architecture/registry-and-vendor-layering.md` (Pre-pull scorecard verification integrates with registry and vendor layering).
+* **Creation**: Documented concept `architecture/bundle-quality-scorecards.md` (Bundle Quality Scorecards and Pre-Pull Verification).
+* **Update**: Added phases 20 (concept overrides) and 21 (quality scorecards) to `roadmap/milestones.md`.
+
+## 2026-10-19
+* **Release**: Published version v0.6.2: semantic 3-way per-listing `index.md` merge in hub sync (#52, #55), composite BM25 IDF calculation across vendor packages (#54), numbered `Related Concepts` heading support in mutations, and retirement of standalone starter-pack distribution archives.
+
+## 2026-10-14
+* **Update**: Linked `architecture/semantic-bookkeeping-merge.md` to `architecture/zero-knowledge-vault-sync.md` (Extends the 3-way reconcile so bookkeeping files merge semantically instead of colliding).
+* **Update**: Linked `architecture/zero-knowledge-vault-sync.md` to `architecture/semantic-bookkeeping-merge.md` (How log.md and index.md collisions are merged during sync).
+* **Creation**: Documented concept `architecture/semantic-bookkeeping-merge.md` (Semantic Merge of Bookkeeping Files During Hub Sync).
+
+## 2026-10-12
+* **Update**: Linked `convention/release-procedure.md` to `architecture/starter-pack-retirement.md` (Governs the exclusion of standalone starter-pack archives from release assets).
+* **Creation**: Documented concept `architecture/starter-pack-retirement.md` (Retirement of Standalone Starter-Pack Distribution Archives).
+* **Release**: Published version v0.6.1: persistent sync engine state across CLI invocations to eliminate 409 head conflicts and local edit revert collisions (#51, #53), symmetrical tokenized BM25 DF/TF scoring with exact matching for short stems (< 4 runes) and metadata frequency caps against keyword stuffing (#42), and streamlined dependency/tool update targets.
+* **Update**: Updated concept `architecture/search-tokenization.md`.
+
+## 2026-10-04
+* **Update**: `convention/release-procedure.md` now reserves signed commits, merges, tags, and pushes for the maintainer; agents only stage changes and propose the commit message and must not disable the sandbox. Aligned `docs/project/playbooks/RELEASE_PLAYBOOK.md`.
+* **Update**: `convention/dual-memory-architecture.md` states the enforced 400-token cap (`AAG-005`) for the managed block instead of the unenforced 100-150 token target. Aligned the AAG and DMAA RFCs and the README.
+* **Update**: `okf agents lint` and `okf validate --agents` report total file tokens (`token_stats.total_tokens`) alongside managed block tokens; the budget still gates only the block.
+* **Update**: Documented the human verification provenance guard in `architecture/security-boundaries.md`: non-human actors cannot add human `verified` entries, and the guard and the `verified.by=human` filter share one definition of a human identity.
+* **Release**: Published version v0.6.0: symlinked bundle roots load correctly and stay confined (#45), custom list frontmatter fields stay typed lists across `okf update` (#49), `--filter` matches list-valued custom fields (#48), and `--filter` keys are exactly the frontmatter field names (breaking: removed the `tag`, `code_ref`, and `desc` aliases), plus a human verification provenance guard and detection of quoted frontmatter keys smuggled in a body.
+* **Update**: Clarified the credit rule in `convention/release-procedure.md` and `convention/command-mutation-checklist.md`: never credit the project's own agent or bot accounts, credit external reporters and contributors by handle whether or not an agent files their report.
+* **Update**: Updated concept `architecture/metadata-roundtrip.md`.
+* **Update**: Updated concept `architecture/security-boundaries.md`.
+
+## 2026-10-01
+* **Creation**: Documented concept `convention/command-mutation-checklist.md` (CLI and MCP Command Modification Checklist).
+* **Update**: Documented the 4-tier Scope Specification Matrix, multi-scope search filtering (`--scope`), and hermetic external link validator guarantees in `architecture/registry-and-vendor-layering.md`.
+* **Refactoring**: Standardized vendor package references on clean `@<bundle-id>/<concept-id>` syntax (and `okf://@<bundle-id>/<concept-id>`), removing redundant `vendor/` prefixes and strictly routing unscoped targets to local project memory.
+* **Release**: Published version v0.5.0: OKF Registry integration (`registry.okf-memory.dev`), zero-dependency `okf.lock` manifest, multi-scope priority layering, `okf pull`, `okf restore`, `okf vendor`, multi-scope composite BM25 indexing, and hermetic `@` cross-scope linking (closes #11).
+* **Update**: Linked `architecture/layers.md` to `architecture/registry-and-vendor-layering.md` (Multi-scope resolution and registry distribution expand the tooling and knowledge layers).
+* **Update**: Updated concept `roadmap/milestones.md` adding Phase 19 (OKF Registry & Multi-Scope Vendor Layering).
+* **Creation**: Documented concept `architecture/registry-and-vendor-layering.md` (OKF Registry Client, Dependency Locking, and Multi-Scope Vendor Layering).
+
+## 2026-09-27
+* **Release**: Published version v0.4.4: Metadata mutation parity for CLI and MCP (#38, #39), core MCP server and Hub sync decoupling into dedicated packages, generic frontmatter query filter AST evaluation (`--filter`), temporal staleness horizon projection (`--stale-within`), and drift validation link resolution fix (#41).
+* **Fix**: Resolved false positive parent index warnings in drift validation for bundle-absolute and dot-relative links (#41).
+* **Update**: Synchronized root `knowledge/index.md` with `requirements/mutation-metadata.md` and constrained MCP tag length to 50 characters (#38, #39).
+
+## 2026-09-26
+* **Update**: Linked `requirements/mutation-metadata.md` to `architecture/tooling-decision.md` (Specifies lifecycle and tag mutation behavior for the Go CLI and MCP surfaces.).
+* **Creation**: Documented concept `requirements/mutation-metadata.md` (Metadata Mutation Parity for CLI and MCP).
+
+## 2026-09-25
+* **Refactoring**: Decoupled CLI subcommand implementations and command registry into `internal/cli` to keep `cmd/okf` lean and encapsulate command parsing.
+* **Update**: Synchronized `code_refs` in `architecture/governance-model.md` and `architecture/zero-knowledge-vault-sync.md`.
+
+## 2026-09-23
+* **Release**: Published version v0.4.3 — Cross-platform absolute path evasion defense (`IsAbsPath`), multi-line YAML frontmatter smuggling defense in concept bodies, CLI validate findings taxonomy separation and summary counter reconciliation, and automated security audit discovery expansion.
+* **Update**: Updated concept `convention/release-procedure.md`.
+* **Update**: Updated concept `roadmap/milestones.md` adding Phase 18 (Cross-Platform Boundary Hardening & Validation Taxonomy).
+* **Update**: Updated concept `convention/security-audit.md`.
+
+## 2026-09-19
+* **Release**: Published version v0.4.2 — MCP security hardening, argument boundary integrity and DoS length capping (`getStringArg`), 4MB stream-limiting stdin reader to prevent OOM attacks, copy-on-write concept update cache integrity, Unicode zero-width/BiDi Trojan Source protection with international character preservation, concept body frontmatter smuggling defense, directory nesting depth caps (`MaxConceptDirectoryDepth = 8`), and universal cross-platform backslash traversal sanitation.
+* **Update**: Updated concept `roadmap/milestones.md` adding Phase 17 (MCP Boundary Integrity & Security Hardening).
+
+## 2026-09-18
+* **Update**: Linked `roadmap/milestones.md` to `convention/release-procedure.md` (Releases execute the milestones defined in the roadmap).
+* **Update**: Linked `convention/contributing.md` to `convention/release-procedure.md` (Release preparation, quality gates, and git tagging procedure).
+* **Creation**: Documented concept `convention/release-procedure.md` (Release Procedure & Distribution Runbook).
+* **Release**: Published version v0.4.1 — Strict MCP specification conformance with object outputSchema and structuredContent payload (OpenCode & Pi agent), atomic filesystem write operations, index broken link detection, bidirectional index drift validation, and crash consistency test suites.
+* **Update**: Updated concept `roadmap/milestones.md` adding Phase 16 (Strict MCP Conformance & Storage Hardening).
+* **Update**: Updated concept `convention/security-audit.md` reframing Google Jules continuous audit workflow to defensive QA and negative unit testing.
+
+## 2026-09-17
+* **Release**: Published version v0.4.0 — Zero-Knowledge Vault Synchronization, client-side AES-256-GCM envelope encryption, Argon2id KDF, CAS blind sync protocol, atomic head concurrency control, 3-way reconcile engine, and OKF Memory Hub CLI suite with Bearer token authentication.
+* **Update**: Updated concept `roadmap/milestones.md`.
+* **Update**: Updated concept `architecture/zero-knowledge-vault-sync.md`.
+* **Update**: Updated concept `convention/coding-standards.md`.
+* **Update**: Updated concept `convention/contributing.md`.
+
+## 2026-09-16
+* **Release**: Published version v0.3.1 — Dual-Memory Agent Architecture (DMAA) empirical benchmark suite (`okf-benchmark`), CLI subcommand help handlers (`okf <subcommand> --help`), pre-flight GPU warmup ping, automated Mermaid diagram sanitizer, AAG v0.1 skill refactoring, and mutation performance hardening.
+
+## 2026-09-15
+* **Release**: Published version v0.3.0 — Agent Action Grammar (AAG) RFC & AST Linter (`AAG-001`–`AAG-005`), Dual-Memory Agent Architecture (DMAA), Multi-Domain Codex Scaffolding (`okf agents init`), SSoT Tool Symlinks (`okf agents link`), `okf validate --agents`, and Google Jules security remediation.
+* **Update**: Updated `knowledge/roadmap/milestones.md` marking Phase 13 (DMAA & Agent Action Grammar) as completed.
+* **Update**: Linked `convention/dual-memory-architecture.md` to `architecture/layers.md` (Defines Layer 1 push working memory and Layer 2 pull domain memory).
+* **Update**: Linked `convention/dual-memory-architecture.md` to `convention/principles.md` (Specializes behavioral invariants into two cognitive memory layers).
+* **Creation**: Documented concept `convention/dual-memory-architecture.md` (Dual-Memory Agent Architecture & Agent Action Grammar).
+* **Documentation**: Reorganized `docs/` hierarchy into categorized subdirectories (`guides/`, `spec/`, `security/`, `project/`, `releases/`) and created central `docs/README.md` index. Added `docs/spec/DUAL_MEMORY_AGENT_ARCHITECTURE_RFC.md`, `docs/spec/AGENT_ACTION_GRAMMAR_RFC.md`, `docs/guides/AGENT_INSTRUCTION_BEST_PRACTICES.md`, and `docs/guides/LLM_INSTRUCTION_PATTERNS_CHEATSHEET.md`.
+
+## 2026-09-14
+* **Update**: Linked `architecture/zero-knowledge-vault-sync.md` to `architecture/layers.md` (Zero-knowledge sync extends the tooling and storage layers with client-side cryptography.).
+* **Creation**: Documented concept `architecture/zero-knowledge-vault-sync.md` (Zero-Knowledge Vault Cryptography and Blind Sync Architecture).
+
+## 2026-09-12
+* **Release**: Published version v0.2.0 — Epistemic Governance & Code-to-Knowledge Binding Release.
+* **Infrastructure**: Automated GitHub Actions release pipeline to ingest release notes from `docs/releases/${VERSION}.md` with fail-fast CI gate.
+* **Community**: Achieved 100% GitHub Community Health with Contributor Covenant v2.1 `CODE_OF_CONDUCT.md`, `CONTRIBUTORS.md` acknowledgements, interactive avatar grid, GitHub Sponsors configuration, and Dependabot automation.
+* **Update**: Updated `knowledge/roadmap/milestones.md` marking Phase 12 (Governance & Code Binding) as completed.
+
+## 2026-09-11
+* **Release**: Prepared major milestone Release v0.2.0 — Epistemic Governance & Code-to-Knowledge Binding Release integrating 3-tier authority model (constraint, hold, context), code_refs and scoped pre-edit discovery (--for-path in CLI and MCP), automated dogfooding parity test (TestDogfoodingAssetDrift), path traversal hardening (CWE-22), and community contributions from @krakozavr, @denis-samatov (#14-#17), and @dajiaohuang (#19).
+* **Update**: Updated concept `convention/coding-standards.md` establishing the embedded asset synchronization invariant (`make sync-assets` and automated CI drift gate `TestDogfoodingAssetDrift`).
+* **Update**: Linked `architecture/layers.md` to `architecture/governance-model.md` (Specifies the 3-tier epistemic governance model and code-to-knowledge binding).
+* **Update**: Linked `architecture/governance-model.md` to `architecture/tooling-decision.md` (Implemented in deterministic Go CLI and MCP server).
+* **Update**: Linked `architecture/governance-model.md` to `architecture/layers.md` (Defines Layer 2 governance policies and Layer 4 code binding).
+* **Creation**: Documented concept `architecture/governance-model.md` (Governance vs. Execution Context and Code Binding).
+* **Update**: Established Issue-First contribution policy and GitFlow branching strategy designating `develop` as default integration branch for PRs and reserving `main` strictly for tagged releases in `convention/contributing.md`, `CONTRIBUTING.md`, `.github/pull_request_template.md`, and `docs/RELEASE_PLAYBOOK.md`.
+
+## 2026-09-10
+* **Creation**: Documented concept `architecture/cli-argument-boundary.md` (CLI Optional Path Boundary).
+* **Creation**: Documented concept `architecture/metadata-roundtrip.md` (Safe Unknown Metadata Round-Trip).
+* **Creation**: Documented concept `architecture/relationship-identity.md` (Relationship Identity and Logging).
+* **Creation**: Documented concept `architecture/search-tokenization.md` (Unicode and Deterministic Search).
+
 ## 2026-09-09
-* **Release**: Prepared version v0.1.5 — Adversarial Security & DRY Hardening Release integrating autonomous Google Jules adversarial security loop, boundary symlink containment, central DRY metadata sanitization, actor whitespace fallback, self-relation loop prevention, and Jules workflow automation (`jules-review`, `jules-merge`).
+* **Release**: Published version v0.1.5 — Adversarial Security & DRY Hardening Release integrating autonomous Google Jules adversarial security loop, boundary symlink containment, central DRY metadata sanitization, actor whitespace fallback, self-relation loop prevention, and Jules workflow automation (`jules-review`, `jules-merge`).
 
 ## 2026-09-08
 * **Update**: Linked `architecture/layers.md` and `convention/contributing.md` to `convention/coding-standards.md`.
@@ -44,21 +185,3 @@
 ## 2026-09-01
 * **Decision**: Secured and standardized official project domain `okf-memory.dev` for documentation and ecosystem positioning.
 * **Creation**: Added comprehensive competitive comparison against `agent-memory.dev` in `OKF-MEMORY_VS_AGENT-MEMORY.md` and linked in `docs/ALTERNATIVES.md`.
-* **Update**: Updated `knowledge/project/overview.md` with official canonical domain `https://okf-memory.dev`.
-
-## 2026-08-28
-* **Creation**: Implemented Multi-Agent Testing suite (`docs/AGENT_TESTING.md`) and automated Go integration tests (`pkg/okf/scenarios_test.go`) validating the 10-step Definition of Done.
-* **Creation**: Added comprehensive project documentation: `docs/GETTING_STARTED.md`, `docs/CLI.md`, and `docs/SECURITY.md`.
-* **Creation**: Added GitHub Actions CI (`.github/workflows/ci.yml`) and automated Release (`.github/workflows/release.yml`) workflows for multi-platform binary compilation and starter-pack packaging.
-* **Update**: Enhanced root `Makefile` with `fmt-check`, `vet`, `validate-examples`, and `validate-all` targets.
-* **Update**: Synchronized `knowledge/roadmap/milestones.md` status table reflecting completion of Phases 1–6.
-
-## 2026-08-27
-* **Creation**: Added `okf bootstrap` command with embedded assets for 1-step project scaffolding, cross-platform release builds, and standalone starter bundle archiving (`make dist-bundle`).
-* **Creation**: Created standardized agent skill (`skill/`), added `okf relate` command for relationship linking, finalized Convention v0.1, and built 3 complete example corpora (`examples/software`, `examples/coaching`, `examples/books`).
-* **Update**: Reorganized root documentation into `docs/` and created root `README.md` and `AGENTS.md`.
-* **Creation**: Implemented Go OKF core library (`pkg/okf`), standalone CLI (`cmd/okf`), and embedded MCP server (`okf mcp`) with in-memory BM25 search and automated bookkeeping.
-* **Creation**: Added value proposition & core selling points concept `project/value-proposition.md`.
-* **Creation**: Added architectural decision concept `architecture/tooling-decision.md` establishing Go as the single-binary foundation for CLI, In-Memory BM25 search, and built-in MCP server.
-* **Update**: Added root `Makefile` with automatic JS-runner detection (`deno`, `node`, `bun`) to run `make validate` against the `knowledge/` bundle.
-* **Creation**: Initialized the `okf-agent-memory` persistent knowledge corpus as an OKF v0.2 bundle. Added concepts for project overview, 5-layer architecture, core memory principles, knowledge review lifecycle, and roadmap milestones.

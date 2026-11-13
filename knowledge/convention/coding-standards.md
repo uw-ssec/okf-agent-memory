@@ -1,15 +1,15 @@
 ---
 type: Convention
 title: "Engineering & Coding Best Practices (Clean Code, TDD, DRY)"
-description: "Core software engineering conventions for agents and humans covering Clean Code, TDD, DRY, idiomatic Go, and zero-dependency design."
-generated: { by: agent/mcp, at: "2026-09-08T10:52:57Z" }
+description: "Core software engineering conventions covering Clean Code, TDD, DRY, idiomatic Go, and zero third-party dependency design."
+generated: { by: agent/mcp, at: "2026-11-05T22:08:02Z" }
 ---
 
 # Engineering & Coding Best Practices (Clean Code, TDD, DRY)
 
 ## Context & Purpose
 
-This convention establishes the core software engineering standards and behavioral coding guarantees for AI agents and human engineers developing the `okf-agent-memory` codebase. Adherence ensures zero-dependency simplicity, predictable performance, and high defensive resilience across platforms.
+This convention establishes the core software engineering standards and behavioral coding guarantees for AI agents and human engineers developing the `okf-agent-memory` codebase. Adherence ensures zero third-party dependency simplicity, predictable performance, and high defensive resilience across platforms.
 
 ---
 
@@ -47,9 +47,10 @@ Code must adhere to modern idiomatic Go (Go 1.24+ / Go 1.26):
 * **Self-Documenting Naming**:
   - Use clear, descriptive names for functions, types, and variables.
   - Follow Go receiver conventions (e.g. `b *Bundle`, `c *Concept`, `s *mcpServer`).
-* **Zero External Dependencies**:
-  - The Go library and CLI rely **100% on the Go standard library** (`os`, `io`, `path`, `filepath`, `strings`, `slices`, `time`, `encoding/json`).
-  - Never introduce external packages or third-party frameworks.
+* **Zero Third-Party Dependencies**:
+  - The core Go library (`pkg/okf`) relies **100% on the Go standard library** (`os`, `io`, `path`, `filepath`, `strings`, `slices`, `time`, `encoding/json`).
+  - For zero-knowledge cryptographic primitives (`pkg/vault`), only official Go project sub-repositories (`golang.org/x/crypto`) are permitted for Argon2id key derivation.
+  - Never introduce external third-party packages, vendor libraries, or third-party frameworks.
 
 ---
 
@@ -65,6 +66,11 @@ Maintain architectural discipline by avoiding both code duplication and over-eng
   - Do not create abstractions for single-use implementations.
 * **Platform Portability**:
   - Always use `filepath.Join`, `filepath.Clean`, and `filepath.ToSlash` rather than manual string concatenation with `/` or `\`.
+* **Embedded Asset Synchronization (Dogfooding Invariant)**:
+  - The repository's active skill in `.agents/skills/okf-memory/` is the Single Source of Truth for agent behavior.
+  - The embedded copy under `pkg/okf/assets/skill/` must remain 100% byte-identical so new projects bootstrapped via `okf bootstrap` receive the exact same capabilities.
+  - Run `make sync-assets` to mirror active skills into `pkg/okf/assets/skill/`.
+  - **Automated Gate**: `TestDogfoodingAssetDrift` in `pkg/okf/dogfood_test.go` runs during `make check` and automatically fails CI if active and embedded assets drift, or if repository-specific internal paths leak into the generic `pkg/okf/assets/templates/AGENTS.md` template.
 
 ---
 
@@ -89,8 +95,9 @@ This runs the complete deterministic pipeline:
 1. `make fmt`: Source code formatted with `gofumpt` / `gofmt`.
 2. `make vet`: Go vet static diagnostics clean.
 3. `make lint`: `golangci-lint` passes with 0 issues.
-4. `make test`: 100% unit and scenario test pass rate.
-5. `make validate-all`: All OKF bundles (`knowledge/` and all examples) strictly conformant.
+4. `make security-audit`: `gosec` and `govulncheck` report zero security issues.
+5. `make test`: 100% unit and scenario test pass rate with race detector enabled.
+6. `make validate-all`: All OKF bundles (`knowledge/` and all examples) strictly conformant.
 
 ---
 
@@ -98,4 +105,4 @@ This runs the complete deterministic pipeline:
 - [Contributor Guidelines & PR Standards](contributing.md): Quality gates and contribution workflow
 - [5-Layer System Architecture](../architecture/layers.md): Layered separation of concerns and zero-dependency rule
 - [Bundle Isolation and Mutation Security Boundaries](../architecture/security-boundaries.md): Defensive choke-points and path isolation architecture
-- [Automated Security Auditing & Jules Remediation Workflow](security-audit.md): Proactive adversarial auditing and verification pipeline
+- [Automated Security Auditing & Defensive Verification Workflow](security-audit.md): Proactive adversarial auditing and verification pipeline
